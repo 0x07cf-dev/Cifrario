@@ -1,201 +1,303 @@
 .data
-  welcomeMsg: .asciiz "Welcome. \n"
-  ioErrorMsg: .asciiz "Invalid key. \n"
+  error_ioMsg: .asciiz "Si è verificato un errore. \n"
 
-  keyPath: .asciiz "chiave.txt"
-  keyBuffer: .space 4
+  key_path: .asciiz "chiave.txt"
+  key_addr: .word 1
 
-  reverseKeyBuffer: .space 4
+  msg_path: .asciiz "messaggio.txt"
+  msg_addr: .space 128
 
-  inputPath: .asciiz "messaggio.txt"
-  inputBuffer: .space 128
+  output_path: .asciiz "messaggioCifrato.txt"
+  output_buffer: .space 512
 
-  outputPath: .asciiz "messaggioCifrato.txt"
-  outputBuffer: .space 1024
+  enum_chars: .space 256
 
 .text
 .globl main
 
 main:
-  li $v0, 4
-  la $a0, welcomeMsg
-  syscall
+  jal read_input
+  jal read_key
 
-  jal loadInput
-  move $t6, $v1
+  move $a0, $s0
+  move $a1, $s2
+  jal encrypt_loop
+encrypt_end:
+  jal write_output
 
-  jal loadKey
-  move $t7, $v1
-
-  move $a0, $t6
-  move $a1, $t7
-  jal encryptInput
-
-endEncrypt:
-  # Termine del codice.
+end:
   li $v0, 10
   syscall
-# Fine.
 
 
 ###############################################################################################################################
-## 1) Caricamento del messaggio da cifrare/decifrare in $v1.
+## 1) Lettura del messaggio da cifrare; indirizzo salvato in $s0, lunghezza del messaggio in $s1.
 ###############################################################################################################################
-loadInput:
-    # Apro il file contenente il messaggio.
+read_input:
+    # Apro il file.
   li $v0, 13
-  la $a0, inputPath   # name
-  li $a1, 0           # flags
-  li $a2, 0           # mode
+  la $a0, msg_path        # percorso del file
+  li $a1, 0               # flags (0 = read-only)
   syscall
 
-  move $t0, $v0
+  blt $v0, $zero, error_io
 
     # Leggo il file.
+  move $a0, $v0           # descrittore del file
   li $v0, 14
-  move $a0, $t0           # descriptor
-  la $a1, inputBuffer     # buffer
-  li $a2, 32              # count
+  la $a1, msg_addr        # buffer
+  li $a2, 128             # numero di caratteri da leggere
   syscall
 
-  la $v1, inputBuffer
+  bltz $v0, error_io
+  la $s0, msg_addr        # $s0 = indirizzo del messaggio letto
+  move $s1, $v0           # $s1 = lunghezza del messaggio letto
 
     # Chiudo il file.
   li $v0, 16
-  move $a0, $t0     # filename
   syscall
 
   jr $ra
 
 ###############################################################################################################################
-## 2) Caricamento della chiave di cifratura in $v1.
+## 2) Lettura della chiave di cifratura; indirizzo salvato in $s2, lunghezza della chiave in $s3.
 ###############################################################################################################################
-loadKey:
-
-  # Apro il file contenente la chiave, ottenendone il descrittore nel registro $v0. (negativo = errore)
+read_key:
+    # Apro il file.
   li $v0, 13
-  la $a0, keyPath       # percorso del file
-  li $a1, 0             # flags (0 = read-only)
+  la $a0, key_path        # percorso del file
+  li $a1, 0               # flags (0 = read-only)
   syscall
 
-  blt $v0, $zero, ioError
-  move $t0, $v0
+  blt $v0, $zero, error_io
 
-  # Leggo il file
+    # Leggo il file
+  move $a0, $v0           # descrittore del file
   li $v0, 14
-  move $a0, $t0         # descrittore del file
-  la $a1, keyBuffer     # buffer
-  li $a2, 32            # numero di caratteri da leggere
+  la $a1, key_addr        # buffer
+  li $a2, 4               # numero di caratteri da leggere
   syscall
 
-  bltz $v0, ioError
-  la $v1, keyBuffer
+  bltz $v0, error_io
+  la $s2, key_addr        # $s2 = indirizzo della chiave letta
+  move $s3, $v0           # $s3 = lunghezza della chiave letta
 
-  # Chiudo il file.
+    # Chiudo il file.
   li $v0, 16
-  move $a0, $t0
   syscall
 
   jr $ra
 
 ###############################################################################################################################
-##  4) Lettura iterativa dei caratteri della chiave con conseguente
-##  applicazione dei corrispondenti algoritmi di cifratura. (input = $a0, chiave = $a1).
+##  3) Lettura iterativa dei caratteri della chiave con conseguente
+##     applicazione dei corrispondenti algoritmi di cifratura.
 ###############################################################################################################################
-encryptInput:
-  move $t0, $a0
+encrypt_loop:
+  lb $t0, 0($a1)                    # $t0 = prossimo carattere della chiave
+  beq $t0, 0x00, encrypt_end        # termina il ciclo una volta raggiunto il carattere nullo
+  blt $t0, 0x41, error_io
+  bgt $t0, 0x45, error_io
 
-  lb $t2, 0($a1)  # carico il prossimo carattere della chiave su $t1
-  beqz $t2, endEncrypt   # termina il loop una volta raggiunto il carattere finale
+  la $s7, output_buffer
+  beq $t0, 0x41, encrypt_a
+  beq $t0, 0x42, encrypt_b
+  beq $t0, 0x43, encrypt_c
+  beq $t0, 0x44, encrypt_d
+  beq $t0, 0x45, encrypt_e
 
-  blt $t2, 'A', ioError
-  bgt $t2, 'E', ioError
-
-  beq $t2, 'A', encryptA
-  beq $t2, 'B', encryptB
-  beq $t2, 'C', encryptC
-  beq $t2, 'D', encryptD
-  beq $t2, 'E', encryptE
-
-  encryptInputNext:
-    addi $a1, $a1, 1 # passo al prossimo carattere
-    move $a0, $v1 # ogni algoritmo salverà il risultato
-    j encryptInput
+encrypt_loop_next:
+  move $a0, $v0
+  addi $a1, $a1, 1                  # incremento l'indirizzo della chiave
+j encrypt_loop
 
 ###############################################################################################################################
-##  5) Salvataggio del messaggio cifrato. ()
+##  4) Salvataggio del messaggio cifrato.
 ###############################################################################################################################
-saveEncryptedMessage:
-  move $t0, $a0
-
+write_output:
   li $v0, 13
-  la $a0, outputPath
+  la $a0, output_path
   li $a1, 1
-  li $a2, 0
   syscall
 
   move $a0, $v0
   li $v0, 15
-  la $a1, outputBuffer
+  la $a1, output_buffer
+  move $a2, $s1
   syscall
 
   li $v0, 16
   syscall
 
-  jr $ra
+jr $ra
 
 
-
-Tutti gli algoritmi agiscono su un messaggio in $a0 e NON devono assolutamente modificare il valore del registro $a1 che contiene la chiave di cifratura originale!
-################################################################################################################################
-##  A) Il codice ASCII standard su 8 bit di ciascun carattere del messaggio di testo viene modificato sommandoci una costante decimale K=4, modulo 256.
-##  Ovvero, se cod(X) è la codifica ascii standard decimale di un carattere X del messaggio, la cifratura di X corrisponderà a: (cod(X)+K) mod 256).
-##########################################################################################################################
-encryptA:
-  lb $t4, 0($t0) # carico il prossimo carattere non cifrato su $t3
-  beqz $t4, encryptEnd
-
-  addi $t5, $t4, 4
-  div $t5, $t5, 256
-  sb $t3, 0($t4) # salvo il carattere così cifrato
-
-  addi $t3, $t3, 1 # passo al prossimo carattere
-  j encryptA
-
-  encryptEnd:
-    move $v1, $t3 # sposto il risultato in $v1.
-    j encryptInputNext
+###############################################################################################################################
 
 
-################################################################################################################################
-##  B) Si applica l’Algoritmo A a tutti i caratteri del messaggio di testo che sono in posizione di indice pari.
-##########################################################################################################################
-encryptB:
+encrypt_a:
+  lb $t0, 0($a0)                     # $t0 = prossimo carattere del messaggio
+  beq $t0, 0x00, encrypt_a_end       # termina il ciclo una volta raggiunto il carattere nullo
 
-  j encryptInputNext
+  addiu $t0, $t0, 4
+  div $t0, $t0, 256
+  mfhi $t0                           # $t0 = ($t0 + 4) % 256
 
+  sb $t0, 0($s7)                     # salvo il carattere cifrato su output_buffer
 
-################################################################################################################################
-##  C) Si applica l’Algoritmo A a tutti i caratteri del messaggio di testo che sono in posizione di indice dispari.
-##########################################################################################################################
-encryptC:
+  addi $a0, $a0, 1                   # passo al prossimo carattere
+  addi $s7, $s7, 1                   # incremento l'indirizzo del buffer
 
-  j encryptInputNext
+  j encrypt_a
 
-
-################################################################################################################################
-##  D) Il messaggio viene cifrato invertendo l’ordine dei caratteri del messaggio di  testo.
-##########################################################################################################################
-encryptD:
-
-  j encryptInputNext
+  encrypt_a_end:
+    la $v0, output_buffer             # $v0 = indirizzo del messaggio cifrato
+j encrypt_loop_next
 
 
-################################################################################################################################
-## E) a partire dal primo carattere del messaggio (quello alla posizione 0), il messaggio viene cifrato come una sequenza di stringhe separate da esattamente 1 spazio 
-## in cui ciascuna stringa ha la forma “x��?p1��?...��?pk��?, dove x è la  prima occorrenza di ciascun carattere presente nel messaggio, p1...pk sono le posizioni in cui il carattere
-## x appare nel messaggio (con p1<...<pk), ed in cui ciascuna posizione è  preceduta dal carattere separatore ‘��?‘ (per distinguere gli elementi della sequenza delle posizioni). 
-##########################################################################################################################
-encryptE:
+encrypt_b:
+  lb $t0, 0($a0)                    # $t0 = prossimo carattere del messaggio
+  beq $t0, 0x00, encrypt_b_end      # termina il ciclo una volta raggiunto il carattere nullo
 
-  j encryptInputNext
+  addiu $t0, $t0, 4
+  div $t0, $t0, 256
+  mfhi $t0                          # $t0 = ($t0 + 4) % 256
+
+  sb $t0, 0($s7)                    # salvo il carattere cifrato su output_buffer
+
+  addi $a0, $a0, 1
+
+  lb $t0, 0($a0)
+  sb $t0, 0($s7)
+
+  addi $a0, $a0, 1
+  addi $s7, $s7, 2
+
+  j encrypt_a
+
+  encrypt_b_end:
+    la $v0, output_buffer           # $v0 = indirizzo del messaggio cifrato
+j encrypt_loop_next
+
+
+encrypt_c:
+  lb $t0, 1($a0)                    # $t0 = prossimo carattere del messaggio
+  beq $t0, 0x00, encrypt_c_end      # termina il ciclo una volta raggiunto il carattere nullo
+
+  addiu $t0, $t0, 4
+  div $t0, $t0, 256
+  mfhi $t0                          # $t0 = ($t0 + 4) % 256
+
+  sb $t0, 0($s7)                    # salvo il carattere cifrato su output_buffer
+
+  addi $a0, $a0, 1
+
+  lb $t0, 0($a0)
+  sb $t0, 0($s7)
+
+  addi $a0, $a0, 1
+  addi $s7, $s7, 2
+
+  encrypt_c_end:
+    la $v0, output_buffer           # $v0 = indirizzo del messaggio cifrato
+j encrypt_loop_next
+
+
+encrypt_d:
+  move $t0, $zero       # i
+  addi $t1, $s1, -1     # j = str_len - 1
+
+  encrypt_d_loop:
+    add $t2, $a0, $t0
+    add $t3, $a0, $t1
+
+    lb $t4, 0($t2)      # $t4 = msg[i]
+    lb $t5, 0($t3)      # $t5 = msg[j]
+
+    add $t6, $s7, $t0
+    add $t7, $s7, $t1
+
+    sb $t4, 0($t7)      # msg[j] = msg[i]
+    sb $t5, 0($t6)      # msg[i] = msg[j]
+
+    addi $t0, $t0, 1    # i++
+    addi $t1, $t1, -1   # j--
+
+    ble $t0, $t1, encrypt_d_loop
+    la $v0, output_buffer
+j encrypt_loop_next
+
+
+encrypt_e:
+  li $t0, 0       # i
+  li $t1, 0       # j
+  li $t2, 0       # k
+  la $t3, enum_chars
+
+  str_loop:
+    bge $t0, $s1, str_loop_exit               # if i >= str_len exit loop
+    move $t1, $t0                             # j = i
+    add $t2, $a0, $t0                         # $t2 = &str[i]
+    lb $a2, 0($t2)                            # $a2 = str[i]
+
+    add $t4, $t3, $a2                         # $t4 = &enum_chars + &str[i]
+    lb $s4, 0($t4)
+    beq $a2, $s4, str_loop_skip               # se il carattere Ã¨ giÃ  stato visitato, salta al prossimo
+    sb $a2, 0($t4)                            # altrimenti inseriscilo in enum_chars
+    li $t4, 0
+    li $s4, 0                                 # ripristino i registri
+
+    sb $a2, 0($s7)
+    addi $s7, $s7, 1
+
+    li $t2, 0
+
+    char_loop:
+      bge $t1, $s1, char_loop_exit            # if j >= str_len exit loop
+      add $t4, $s0, $t1                       # $t4 = &str[j]
+      lb $a3, 0($t4)                          # $a3 = str[j]
+      bne $a2, $a3, char_loop_skip            # if str[i] != str[j] salta al prossimo
+
+      move $s6, $t1                           # j viene copiato
+
+      li $t4, 45
+      sb $t4, 0($s7)
+      addi $s7, $s7, 1                        # aggiungo il carattere "-"
+
+      push_loop:
+        addi $sp, $sp, -1
+        div $t4, $t1, 10
+        mfhi $t4                              # j % 10
+        addi $t4, $t4, 48
+        sb $t4, 0($sp)
+        div $s6, $s6, 10                      # j / 10
+        addi $t2, $t2, 1                      # k++
+        beq $s6, $zero, pop_loop
+        j push_loop
+
+      pop_loop:
+        lb $t4, 0($sp)
+        sb $t4, 0($s7)
+        addi $s7, $s7, 1
+        addi $t2, $t2, -1                     # k--
+        addi $sp, $sp, 1
+        beq $t2, $zero, char_loop_skip
+        j pop_loop
+
+    char_loop_skip:
+      addi $t1, $t1, 1                        # j++
+      j char_loop
+    char_loop_exit:
+      li $t4, 32
+      sb $t4, 0($s7)
+      addi $s7, $s7, 1                        # aggiungo il carattere " "
+
+  str_loop_skip:
+    addi $t0, $t0, 1                          # i++
+    j str_loop
+  str_loop_exit:
+    la $v0, output_buffer
+    # CONTA NUOVA STR_LEN
+j encrypt_loop_next
+
+error_io:
+  j end
