@@ -11,6 +11,7 @@
 
   input_buffer: .space 512
   output_buffer: .space 512
+  temp_buffer: .space 512
   enum_chars: .space 256
 
 .text
@@ -274,6 +275,7 @@ cipher_e:
   li $t1, 0       # j
   li $t2, 0       # k
   la $t3, enum_chars
+  la $s7, temp_buffer
 
   e_loop:
     bge $t0, $s1, e_loop_exit                   # if i >= str_len exit loop
@@ -293,7 +295,7 @@ cipher_e:
 
     char_loop:
       bge $t1, $s1, char_loop_exit              # if j >= str_len exit loop
-      add $t4, $s0, $t1                         # $t4 = &str[j]
+      add $t4, $a0, $t1                         # $t4 = &str[j]
       lb $a3, 0($t4)                            # $a3 = str[j]
       bne $a2, $a3, char_loop_skip              # if str[i] != str[j] salta al prossimo
 
@@ -334,17 +336,22 @@ cipher_e:
     addi $t0, $t0, 1                            # i++
     j e_loop
   e_loop_exit:
-    la $v0, output_buffer
     li $t0, 0
+    la $t1, temp_buffer
+    la $t4, output_buffer
 
-    count_loop:
-      add $t1, $v0, $t0
-      lb $t2, 0($t1)
-      beq $t2, 0x00, count_loop_exit
+    copy_loop:
+      add $t2, $t1, $t0
+      lb $t3, 0($t2)
+      beq $t3, $zero, copy_loop_exit
+      add $t5, $t4, $t0
+      sb $t3, 0($t5)
       addi $t0, $t0, 1
-      j count_loop
-    count_loop_exit:
-      move $s1, $t0                             # E non preserva la lunghezza della stringa, perciò è da aggiornare
+      j copy_loop
+    copy_loop_exit:
+
+    la $v0, output_buffer
+    move $s1, $t0                             # E non preserva la lunghezza della stringa, perciò è da aggiornare
     j cipher_loop_next
 
 
