@@ -177,6 +177,7 @@ decrypt_loop:
   lb $t0, 0($a1)
   beq $t0, 0x00, decrypt_loop_exit              # si assuma che la chiave sia semanticamente valida poiché
                                                 # il controllo è eseguito durante la fase di cifratura
+  la $s7, output_buffer
   beq $t0, 0x41, decrypt_a
   beq $t0, 0x42, decrypt_b
   beq $t0, 0x43, decrypt_c
@@ -197,16 +198,16 @@ encrypt_a:
   li $a2, 0
   li $a3, 0
 _encrypt_a:
-  beq $a3, $zero, a_loop
+  beq $a3, $zero, ea_loop
   addi $a3, $a3, -1
   addi $a0, $a0, 1
   lb $t0, 0($a0)
   sb $t0, 0($s7)
   addi $s7, $s7, 1                              # ignora $a3 caratteri
 
-  a_loop:
+  ea_loop:
     lb $t0, 0($a0)                              # $t0 = prossimo carattere del messaggio
-    beq $t0, 0x00, a_loop_exit                  # termina il ciclo una volta raggiunto il carattere nullo
+    beq $t0, 0x00, ea_loop_exit                 # termina il ciclo una volta raggiunto il carattere nullo
 
     addi $t0, $t0, 4
     div $t0, $t0, 256
@@ -216,14 +217,14 @@ _encrypt_a:
     addi $a0, $a0, 1                            # passo al prossimo carattere
     addi $s7, $s7, 1                            # incremento l'indirizzo del buffer
 
-    beq $a2, $zero, a_loop_skip
+    beq $a2, $zero, ea_loop_skip
     lb $t0, 0($a0)
     sb $t0, 0($s7)
     add $a0, $a0, $a2
     add $s7, $s7, $a2
-  a_loop_skip:
-    j a_loop
-  a_loop_exit:
+  ea_loop_skip:
+    j ea_loop
+  ea_loop_exit:
     la $v0, output_buffer                       # $v0 = indirizzo del messaggio cifrato
   j encrypt_loop_next
 
@@ -241,7 +242,7 @@ encrypt_d:
   li $t0, 0                                     # i
   addi $t1, $s1, -1                             # j = str_len - 1
 
-  d_loop:
+  ed_loop:
     add $t2, $a0, $t0
     add $t3, $a0, $t1
 
@@ -257,7 +258,7 @@ encrypt_d:
     addi $t0, $t0, 1                            # i++
     addi $t1, $t1, -1                           # j--
 
-    ble $t0, $t1, d_loop
+    ble $t0, $t1, ed_loop
     la $v0, output_buffer
   j encrypt_loop_next
 
@@ -267,15 +268,15 @@ encrypt_e:
   li $t2, 0       # k
   la $t3, enum_chars
 
-  e_loop:
-    bge $t0, $s1, e_loop_exit                   # if i >= str_len exit loop
+  ee_loop:
+    bge $t0, $s1, ee_loop_exit                   # if i >= str_len exit loop
     move $t1, $t0                               # j = i
     add $t2, $a0, $t0                           # $t2 = &str[i]
     lb $a2, 0($t2)                              # $a2 = str[i]
 
     add $t4, $t3, $a2                           # $t4 = &enum_chars + &str[i]
     lb $s4, 0($t4)
-    beq $a2, $s4, e_loop_skip                   # se il carattere è giÃ  stato visitato, salta al prossimo
+    beq $a2, $s4, ee_loop_skip                   # se il carattere è giÃ  stato visitato, salta al prossimo
     sb $a2, 0($t4)                              # altrimenti inseriscilo in enum_chars
     li $t4, 0
     li $s4, 0                                   # ripristino i registri
@@ -322,10 +323,10 @@ encrypt_e:
       sb $t4, 0($s7)
       addi $s7, $s7, 1                          # aggiungo il carattere " "
 
-  e_loop_skip:
+  ee_loop_skip:
     addi $t0, $t0, 1                            # i++
-    j e_loop
-  e_loop_exit:
+    j ee_loop
+  ee_loop_exit:
     la $v0, output_buffer
     li $t0, 0
 
@@ -336,7 +337,7 @@ encrypt_e:
       addi $t0, $t0, 1
       j count_loop
     count_loop_exit:
-      move $s1, $t0                             # poiché l'algoritmo E non preserva la lunghezza originale della stringa, essa deve essere aggiornata
+      move $s1, $t0                             # E non preserva la lunghezza della stringa, perciò è da aggiornare
     j encrypt_loop_next
 
 
@@ -344,7 +345,38 @@ encrypt_e:
 
 
 decrypt_a:
+  li $a2, 0
+  li $a3, 0
 _decrypt_a:
+  beq $a3, $zero, da_loop
+  addi $a3, $a3, -1
+  addi $a0, $a0, 1
+  lb $t0, 0($a0)
+  sb $t0, 0($s7)
+  addi $s7, $s7, 1                              # ignora $a3 caratteri
+
+  da_loop:
+    lb $t0, 0($a0)                              # $t0 = prossimo carattere del messaggio
+    beq $t0, 0x00, da_loop_exit                 # termina il ciclo una volta raggiunto il carattere nullo
+
+    addi $t0, $t0, -4
+    div $t0, $t0, 256
+    mfhi $t0                                    # $t0 = ($t0 - 4) % 256
+    sb $t0, 0($s7)                              # salvo il carattere cifrato su output_buffer
+
+    addi $a0, $a0, 1                            # passo al prossimo carattere
+    addi $s7, $s7, 1                            # incremento l'indirizzo del buffer
+
+    beq $a2, $zero, da_loop_skip
+    lb $t0, 0($a0)
+    sb $t0, 0($s7)
+    add $a0, $a0, $a2
+    add $s7, $s7, $a2
+  da_loop_skip:
+    j da_loop
+  da_loop_exit:
+    la $v0, output_buffer
+  j decrypt_loop_next
 
 decrypt_b:
 
