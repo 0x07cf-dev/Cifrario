@@ -1,6 +1,6 @@
 .data
-  error_io_msg: .asciiz "Si è verificato un errore durante un'operazione di I/O. \n"
-  error_key_msg: .asciiz "La chiave di cifratura può contenere solamente i caratteri 'A', 'B', 'C', 'D', 'E'. \n"
+  error_io_msg: .asciiz "Si e' verificato un errore durante un'operazione di I/O. \n"
+  error_key_msg: .asciiz "La chiave di cifratura puo' contenere solamente i caratteri 'A', 'B', 'C', 'D', 'E'. \n"
 
   key_path: .asciiz "chiave.txt"
   key_buffer: .word 1
@@ -362,7 +362,7 @@ _decrypt_a:
     addi $t0, $t0, -4
     div $t0, $t0, 256
     mfhi $t0                                    # $t0 = ($t0 - 4) % 256
-    sb $t0, 0($s7)                              # salvo il carattere cifrato su output_buffer
+    sb $t0, 0($s7)                              # salvo il carattere decifrato su output_buffer
 
     addi $a0, $a0, 1                            # passo al prossimo carattere
     addi $s7, $s7, 1                            # incremento l'indirizzo del buffer
@@ -379,13 +379,41 @@ _decrypt_a:
   j decrypt_loop_next
 
 decrypt_b:
+    li $a2, 1
+    li $a3, 0
+    j _decrypt_a
 
 decrypt_c:
+    li $a2, 1
+    li $a3, 1
+    j _decrypt_a
 
 decrypt_d:
+  li $t0, 0                                     # i
+  addi $t1, $s1, -1                             # j = str_len - 1
+
+  dd_loop:
+    add $t2, $a0, $t0
+    add $t3, $a0, $t1
+
+    lb $t4, 0($t2)                              # $t4 = msg[i]
+    lb $t5, 0($t3)                              # $t5 = msg[j]
+
+    add $t6, $s7, $t0
+    add $t7, $s7, $t1
+
+    sb $t4, 0($t7)                              # msg[j] = msg[i]
+    sb $t5, 0($t6)                              # msg[i] = msg[j]
+
+    addi $t0, $t0, 1                            # i++
+    addi $t1, $t1, -1                           # j--
+
+    ble $t0, $t1, dd_loop
+    la $v0, output_buffer
+  j decrypt_loop_next
 
 decrypt_e:
-
+  # effimeri attimi di sofferenza mi separano dalla celestiale salvezza
 
 ###############################################################################################################################
 
