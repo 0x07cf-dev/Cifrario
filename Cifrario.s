@@ -1,56 +1,70 @@
 .data
-  error_ioMsg: .asciiz "Si è verificato un errore. \n"
+  error_io_msg: .asciiz "Si è verificato un errore durante un'operazione di I/O. \n"
+  error_key_msg: .asciiz "La chiave di cifratura può contenere solamente i caratteri 'A', 'B', 'C', 'D', 'E'. \n"
 
   key_path: .asciiz "chiave.txt"
-  key_addr: .word 1
+  key_buffer: .word 1
 
-  msg_path: .asciiz "messaggio.txt"
-  msg_addr: .space 128
+  plaintext_path: .asciiz "messaggio.txt"
+  encrypted_path: .asciiz "messaggioCifrato.txt"
+  decrypted_path: .asciiz "messaggioDecifrato.txt"
 
-  output_path: .asciiz "messaggioCifrato.txt"
+  input_buffer: .space 512
   output_buffer: .space 512
-
   enum_chars: .space 256
 
 .text
 .globl main
 
 main:
-  jal read_input
+  la $a0, plaintext_path
+  jal read_file
   jal read_key
 
   move $a0, $s0
   move $a1, $s2
   jal encrypt_loop
-encrypt_end:
-  jal write_output
 
-end:
+  la $a0, encrypted_path
+  jal write_file
+
+  # fine ciclo cifratura; inizio decifratura
+
+  la $a0, encrypted_path
+  jal read_file
+  jal read_key
+
+  move $a0, $s0
+  move $a1, $s2
+  jal decrypt_loop
+
+  la $a0, decrypted_path
+  jal write_file
+
+exit:
   li $v0, 10
   syscall
 
 
 ###############################################################################################################################
-## 1) Lettura del messaggio da cifrare; indirizzo salvato in $s0, lunghezza del messaggio in $s1.
+## 1) Lettura del messaggio da cifrare/decifrare; indirizzo salvato in $s0, lunghezza del messaggio in $s1.
 ###############################################################################################################################
-read_input:
+read_file:
     # Apro il file.
   li $v0, 13
-  la $a0, msg_path                              # percorso del file
   li $a1, 0                                     # flags (0 = read-only)
   syscall
-
   blt $v0, $zero, error_io
 
     # Leggo il file.
   move $a0, $v0                                 # descrittore del file
   li $v0, 14
-  la $a1, msg_addr                              # buffer
+  la $a1, input_buffer                          # buffer
   li $a2, 128                                   # numero di caratteri da leggere
   syscall
-
   bltz $v0, error_io
-  la $s0, msg_addr                              # $s0 = indirizzo del messaggio letto
+
+  la $s0, input_buffer                          # $s0 = indirizzo del messaggio letto
   move $s1, $v0                                 # $s1 = lunghezza del messaggio letto
 
     # Chiudo il file.
@@ -63,28 +77,51 @@ read_input:
 ## 2) Lettura della chiave di cifratura; indirizzo salvato in $s2, lunghezza della chiave in $s3.
 ###############################################################################################################################
 read_key:
+  bne $s2, $zero, reverse_key                   # se la chiave è già stata caricata, allora siamo in fase di decifratura
     # Apro il file.
   li $v0, 13
   la $a0, key_path                              # percorso del file
   li $a1, 0                                     # flags (0 = read-only)
   syscall
-
   blt $v0, $zero, error_io
 
-    # Leggo il file
+    # Leggo il file.
   move $a0, $v0                                 # descrittore del file
   li $v0, 14
-  la $a1, key_addr                              # buffer
+  la $a1, key_buffer                            # buffer
   li $a2, 4                                     # numero di caratteri da leggere
   syscall
-
   bltz $v0, error_io
-  la $s2, key_addr                              # $s2 = indirizzo della chiave letta
+
+  la $s2, key_buffer                            # $s2 = indirizzo della chiave letta
   move $s3, $v0                                 # $s3 = lunghezza della chiave letta
 
     # Chiudo il file.
   li $v0, 16
   syscall
+
+  jr $ra
+
+reverse_key:
+  li $t0, 0
+  addi $t1, $s3, -1
+
+  reverse_key_loop:
+    add $t2, $s2, $t0
+    add $t3, $s2, $t1
+
+    lb $t4, 0($t2)
+    lb $t5, 0($t3)
+
+    add $t6, $s2, $t0
+    add $t7, $s2, $t1
+
+    sb $t4, 0($t7)
+    sb $t5, 0($t6)
+
+    addi $t0, $t0, 1
+    addi $t1, $t1, -1
+    ble $t0, $t1, reverse_key_loop
 
   jr $ra
 
@@ -94,9 +131,9 @@ read_key:
 ###############################################################################################################################
 encrypt_loop:
   lb $t0, 0($a1)                                # $t0 = prossimo carattere della chiave
-  beq $t0, 0x00, encrypt_end                    # termina il ciclo una volta raggiunto il carattere nullo
-  blt $t0, 0x41, error_io
-  bgt $t0, 0x45, error_io
+  beq $t0, 0x00, encrypt_loop_exit              # termina il ciclo una volta raggiunto il carattere nullo
+  blt $t0, 0x41, error_key
+  bgt $t0, 0x45, error_key
 
   la $s7, output_buffer
   beq $t0, 0x41, encrypt_a
@@ -104,34 +141,57 @@ encrypt_loop:
   beq $t0, 0x43, encrypt_c
   beq $t0, 0x44, encrypt_d
   beq $t0, 0x45, encrypt_e
-
 encrypt_loop_next:
   move $a0, $v0
   addi $a1, $a1, 1                              # incremento l'indirizzo della chiave
-j encrypt_loop
+  j encrypt_loop
+encrypt_loop_exit:
+  jr $ra
 
 ###############################################################################################################################
-##  4) Salvataggio del messaggio cifrato.
+##  4) Salvataggio del messaggio cifrato/decifrato.
 ###############################################################################################################################
-write_output:
+write_file:
+    # Apro il file.
   li $v0, 13
-  la $a0, output_path
   li $a1, 1
   syscall
 
+    # Scrivo sul file.
   move $a0, $v0
   li $v0, 15
   la $a1, output_buffer
   move $a2, $s1
   syscall
 
+    # Chiudo il file.
   li $v0, 16
   syscall
 
-jr $ra
+  jr $ra
+
+###############################################################################################################################
+##  5) Applicazione degli algoritmi di decifratura in ordine inverso per risalire al messaggio originale.
+###############################################################################################################################
+decrypt_loop:
+  lb $t0, 0($a1)
+  beq $t0, 0x00, decrypt_loop_exit              # si assuma che la chiave sia semanticamente valida poiché
+                                                # il controllo è eseguito durante la fase di cifratura
+  beq $t0, 0x41, decrypt_a
+  beq $t0, 0x42, decrypt_b
+  beq $t0, 0x43, decrypt_c
+  beq $t0, 0x44, decrypt_d
+  beq $t0, 0x45, decrypt_e
+decrypt_loop_next:
+  move $a0, $v0
+  addi $a1, $a1, 1                              # incremento l'indirizzo della chiave
+  j encrypt_loop
+decrypt_loop_exit:
+  jr $ra
 
 
 ###############################################################################################################################
+
 
 encrypt_a:
   li $a2, 0
@@ -165,23 +225,20 @@ _encrypt_a:
     j a_loop
   a_loop_exit:
     la $v0, output_buffer                       # $v0 = indirizzo del messaggio cifrato
-j encrypt_loop_next
-
+  j encrypt_loop_next
 
 encrypt_b:
   li $a2, 1
   li $a3, 0
-j _encrypt_a
-
+  j _encrypt_a
 
 encrypt_c:
   li $a2, 1
   li $a3, 1
-j _encrypt_a
-
+  j _encrypt_a
 
 encrypt_d:
-  move $t0, $zero                               # i
+  li $t0, 0                                     # i
   addi $t1, $s1, -1                             # j = str_len - 1
 
   d_loop:
@@ -202,8 +259,7 @@ encrypt_d:
 
     ble $t0, $t1, d_loop
     la $v0, output_buffer
-j encrypt_loop_next
-
+  j encrypt_loop_next
 
 encrypt_e:
   li $t0, 0       # i
@@ -280,8 +336,36 @@ encrypt_e:
       addi $t0, $t0, 1
       j count_loop
     count_loop_exit:
-      move $s2, $t0                             # poiché l'algoritmo E non preserva la lunghezza originale della stringa, essa deve essere aggiornata
-j encrypt_loop_next
+      move $s1, $t0                             # poiché l'algoritmo E non preserva la lunghezza originale della stringa, essa deve essere aggiornata
+    j encrypt_loop_next
+
+
+###############################################################################################################################
+
+
+decrypt_a:
+_decrypt_a:
+
+decrypt_b:
+
+decrypt_c:
+
+decrypt_d:
+
+decrypt_e:
+
+
+###############################################################################################################################
+
 
 error_io:
-  j end
+  li $v0, 4
+  la $a0, error_io_msg
+  syscall
+  j exit
+
+error_key:
+  li $v0, 4
+  la $a0, error_key_msg
+  syscall
+  j exit
