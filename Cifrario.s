@@ -9,16 +9,18 @@
   encrypted_path: .asciiz "messaggioCifrato.txt"
   decrypted_path: .asciiz "messaggioDecifrato.txt"
 
-  input_buffer: .space 512
-  output_buffer: .space 512
+  input_buffer: .space 2048                     # la lunghezza del messaggio originale (128) puo' essere al massimo quadruplicata
+  output_buffer: .space 2048                    # dall'algoritmo E nel caso degenere in cui il messaggio sia composto di soli caratteri differenti,
+                                                # percio' dopo quattro ipotetiche iterazioni dell'algoritmo si avrebbero 128 * 16 = 2048 caratteri
   temp_buffer: .space 512
   enum_chars: .space 256
 
 .text
-.globl main
+.globl cipher
 
-main:
+cipher:
   la $a0, plaintext_path
+  li $a2, 128                                   # caratteri da leggere
   jal read_file
   jal read_key
 
@@ -29,9 +31,9 @@ main:
   la $a0, encrypted_path
   jal write_file
 
-  # fine ciclo cifratura; inizio decifratura
-
+decipher:
   la $a0, encrypted_path
+  li $a2, 2048
   jal read_file
   jal read_key
 
@@ -61,7 +63,6 @@ read_file:
   move $a0, $v0                                 # descrittore del file
   li $v0, 14
   la $a1, input_buffer                          # buffer
-  li $a2, 128                                   # numero di caratteri da leggere
   syscall
   bltz $v0, error_io
 
