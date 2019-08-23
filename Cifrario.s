@@ -9,15 +9,16 @@
   encrypted_path: .asciiz "messaggioCifrato.txt"
   decrypted_path: .asciiz "messaggioDecifrato.txt"
 
-  input_buffer: .space 2048                     # la lunghezza del messaggio originale (128) puo' essere al massimo quadruplicata
-  output_buffer: .space 2048                    # dall'algoritmo E nel caso degenere in cui il messaggio sia composto di soli caratteri differenti,
-                                                # percio' dopo quattro ipotetiche iterazioni dell'algoritmo si avrebbero 128 * 16 = 2048 caratteri
+  input_buffer: .space 2049                     # la lunghezza del messaggio originale (128) puo' essere al massimo quadruplicata
+  output_buffer: .space 2049                    # dall'algoritmo E nel caso degenere in cui il messaggio sia composto di soli caratteri differenti,
+                                                # percio' dopo quattro ipotetiche iterazioni dell'algoritmo si avrebbero 128 * 16 + 1 = 2049 caratteri
   temp_buffer: .space 512
   enum_chars: .space 256
 
 .text
-.globl cipher
+.globl main
 
+main:
 cipher:
   la $a0, plaintext_path
   li $a2, 128                                   # caratteri da leggere
