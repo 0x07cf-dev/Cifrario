@@ -9,9 +9,9 @@
   encrypted_path: .asciiz "messaggioCifrato.txt"
   decrypted_path: .asciiz "messaggioDecifrato.txt"
 
-  input_buffer: .space 2049                     # la lunghezza del messaggio originale (128) puo' essere al massimo quadruplicata
-  output_buffer: .space 2049                    # dall'algoritmo E nel caso degenere in cui il messaggio sia composto di soli caratteri differenti,
-                                                # percio' dopo quattro ipotetiche iterazioni dell'algoritmo si avrebbero 128 * 16 + 1 = 2049 caratteri
+  input_buffer: .space 2633                     # la lunghezza del messaggio originale (128) puo' essere modificata soltanto
+  output_buffer: .space 2633                    # dall'algoritmo E: nel caso degenere in cui il messaggio sia composto di soli caratteri differenti,
+                                                # dopo quattro ipotetiche iterazioni dell'algoritmo, si avrebbero (10*4 + 90*5 + 28*6)*4 + 1 = 2633 caratteri
   temp_buffer: .space 512
   enum_chars: .space 256
 
@@ -287,7 +287,7 @@ cipher_e:
 
     add $t4, $t3, $a2                           # $t4 = &enum_chars + &str[i]
     lb $s4, 0($t4)
-    beq $a2, $s4, e_loop_skip                   # se il carattere è giÃ  stato visitato, salta al prossimo
+    beq $a2, $s4, e_loop_skip                   # se il carattere e' gia' stato visitato, salta al prossimo
     sb $a2, 0($t4)                              # altrimenti inseriscilo in enum_chars
     li $t4, 0
     li $s4, 0                                   # ripristino i registri
@@ -382,6 +382,20 @@ decipher_d:
   j _cipher_d
 
 decipher_e:
+  li $t0, 0                                     # i
+
+  de_loop:
+    add $t2, $a0, $t0                           # $t2 = &str[i]
+    lb $a2, 0($t2)                              # $a2 = str[i]
+    addi $t3, $t2, 1
+    lb $a3, 0($t3)                              # $a3 = str[i + 1]
+
+    beq $a2, 0x00, de_loop_exit
+    beq $a2, 0x20, de_loop_skip
+    beq $a2, 0x2D, de_loop_skip
+  de_loop_skip:
+    addi $t0, $t0, 1
+  de_loop_exit:
   # effimeri attimi di sofferenza mi separano dalla celestiale salvezza
 j decipher_loop_next
 
