@@ -51,7 +51,8 @@ exit:
 
 
 ###############################################################################################################################
-## 1) Lettura del messaggio da cifrare/decifrare; indirizzo salvato in $s0, lunghezza del messaggio in $s1.
+## 1) Lettura dei primi $a2 caratteri contenuti nel file $a0;
+##    Indirizzo del buffer salvato in $s0, lunghezza del messaggio in $s1.
 ###############################################################################################################################
 read_file:
     # Apro il file.
@@ -77,7 +78,8 @@ read_file:
   jr $ra
 
 ###############################################################################################################################
-## 2) Lettura della chiave di cifratura; indirizzo salvato in $s2, lunghezza della chiave in $s3.
+## 2) Lettura della chiave di cifratura, o inversione di quest'ultima se già letta;
+##    Indirizzo del buffer salvato in $s2, lunghezza della chiave in $s3.
 ###############################################################################################################################
 read_key:
   bne $s2, $zero, reverse_key                   # se la chiave è già stata caricata, allora siamo in fase di decifratura
@@ -152,7 +154,7 @@ cipher_loop_exit:
   jr $ra
 
 ###############################################################################################################################
-##  4) Salvataggio del messaggio cifrato/decifrato.
+##  4) Salvataggio dei contenuti di output_buffer in un file $a0.
 ###############################################################################################################################
 write_file:
     # Apro il file.
@@ -295,11 +297,11 @@ cipher_e:
     addi $s7, $s7, 1
     li $t2, 0
 
-    char_loop:
-      bge $t1, $s1, char_loop_exit              # if j >= str_len exit loop
+    e_char_loop:
+      bge $t1, $s1, e_char_loop_exit            # if j >= str_len exit loop
       add $t4, $a0, $t1                         # $t4 = &str[j]
       lb $a3, 0($t4)                            # $a3 = str[j]
-      bne $a2, $a3, char_loop_skip              # if str[i] != str[j] salta al prossimo
+      bne $a2, $a3, e_char_loop_skip            # if str[i] != str[j] salta al prossimo
 
       move $s6, $t1                             # j viene copiato
       li $t4, 45
@@ -323,13 +325,13 @@ cipher_e:
         addi $s7, $s7, 1
         addi $t2, $t2, -1                       # k--
         addi $sp, $sp, 1
-        beq $t2, $zero, char_loop_skip
+        beq $t2, $zero, e_char_loop_skip
         j pop_loop
 
-    char_loop_skip:
+    e_char_loop_skip:
       addi $t1, $t1, 1                          # j++
-      j char_loop
-    char_loop_exit:
+      j e_char_loop
+    e_char_loop_exit:
       li $t4, 32
       sb $t4, 0($s7)
       addi $s7, $s7, 1                          # aggiungo il carattere " "
@@ -353,7 +355,7 @@ cipher_e:
     copy_loop_exit:
 
     la $v0, output_buffer
-    move $s1, $t0                             # E non preserva la lunghezza della stringa, perciò è da aggiornare
+    move $s1, $t0                             # l'algoritmo non preserva la lunghezza della stringa, perciò è da aggiornare
     j cipher_loop_next
 
 
@@ -382,26 +384,81 @@ decipher_d:
   j _cipher_d
 
 decipher_e:
-  li $t0, 0                                     # i
+  move $t0, $a0
+  li $t7, 0                                     # $t7 = contatore valore numerico indice
+  li $t8, 0                                     # $t8 = contatore esponente
+  li $t9, 0                                     # $t9 = contatore inserzioni stack
 
   de_loop:
-    add $t2, $a0, $t0                           # $t2 = &str[i]
-    lb $a2, 0($t2)                              # $a2 = str[i]
-    addi $t3, $t2, 1
-    lb $a3, 0($t3)                              # $a3 = str[i + 1]
-
-    beq $a2, 0x00, de_loop_exit
-    beq $a2, 0x20, de_loop_skip
-    beq $a2, 0x2D, de_loop_skip
-  de_loop_skip:
+    lb $t1, 0($t0)                              # $t1 = carattere da inserire nella stringa finale
+    beq $t1, 0x00, de_loop_exit                 # termina il ciclo una volta raggiunto il carattere nullo
     addi $t0, $t0, 1
+
+    de_push_loop:
+      addi $t0, $t0, 1
+      lb $t2, 0($t0)                            # $t2 = cifra indice
+
+      addi $sp, $sp, -1
+      sb $t2, 0($sp)                            # $t2 viene salvato nello stack
+      addi $t9, $t9, 1
+
+      addi $t0, $t0, 1
+      lb $t2, 0($t0)
+      beq $t2, 0x20, de_pop_loop                # termina il ciclo di inserzione delle cifre nello stack per passare
+      beq $t2, 0x2D, de_pop_loop                # all'estrazione una volta incontrato uno tra i caratteri ' ' e '-'
+      addi $t0, $t0, -1                         # altrimenti ripristino $t0 e continuo il ciclo
+    j de_push_loop
+
+    de_pop_loop:
+      beq $t9, $zero, de_pop_loop_exit
+      lb $t3, 0($sp)                            # $t3 = cifra stack
+      addi $t9, $t9, -1
+
+      move $a2, $t8
+      addi $t8, $t8, 1
+      jal pow
+      mult $t3, $v0
+      mflo $t3                                  # $t3 = $t3 * 10 ^ $t8; $t8 è l'indice posizionale di $t3
+      add $t7, $t7, $t3                         # $t7 = $t7 + $t3
+    j pop_loop
+
+    de_pop_loop_exit:
+      add $t3, $s7, $t7                         # $t3 = &output_buffer + indice
+      sb $t1, 0($t3)
+
+      li $t7, 0
+      li $t8, 0
+      li $t9, 0                                 # ripristino i registri temporanei $t7, $t8, $t9
+
+      beq $t2, 0x2D, de_push_loop               # se il prossimo carattere è '-', passo al prossimo indice
+      addi $t0, $t0, 1                          # altrimenti il prossimo carattere è ' ', pertanto
+      beq $t2, 0x20, de_loop                    # ritorno al ciclo iniziale
   de_loop_exit:
-  # effimeri attimi di sofferenza mi separano dalla celestiale salvezza
-j decipher_loop_next
+    la $v0, output_buffer
+  j decipher_loop_next
 
 
 ###############################################################################################################################
 
+
+# $v0 = 10 ^ $a2
+pow:
+  li $a3, 10
+  li $v0, 10
+pow_loop:
+  addi $a2, $a2, -1
+  beq $a2, $zero, pow_exit
+  blt $a2, $zero, pow_zero
+  mult  $v0, $a3
+  mflo  $v0
+  j pow_loop
+pow_exit:
+  li $a3, 0
+  jr $ra
+pow_zero:
+  li $v0, 1
+  li $a3, 0
+  jr $ra
 
 error_io:
   li $v0, 4
