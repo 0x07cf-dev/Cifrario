@@ -19,7 +19,6 @@
 .globl main
 
 main:
-cipher:
   la $a0, plaintext_path
   li $a2, 128                                   # caratteri da leggere
   jal read_file
