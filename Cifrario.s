@@ -1,3 +1,9 @@
+#
+# Titolo:       Cifrario.s
+# Autore:       Leonardo Buoncompagni (leonardo.buoncompagni@stud.unifi.it)
+# Data:         03/09/2019
+#
+
 .data
   error_io_msg: .asciiz "Si e' verificato un errore durante un'operazione di I/O. \n"
   error_key_msg: .asciiz "La chiave di cifratura puo' contenere solamente i caratteri 'A', 'B', 'C', 'D', 'E'. \n"
@@ -9,17 +15,16 @@
   encrypted_path: .asciiz "messaggioCifrato.txt"
   decrypted_path: .asciiz "messaggioDecifrato.txt"
 
-  input_buffer: .space 2633                     # la lunghezza del messaggio originale (max. 128) puo' essere modificata soltanto
-  output_buffer: .space 2633                    # dall'algoritmo E: nel caso degenere in cui il messaggio sia composto di 128 caratteri differenti,
-                                                # dopo quattro ipotetiche iterazioni dell'algoritmo si avrebbero 4*(4*10 + 5*90 + 6*28) + 1 = 2633 caratteri
-  temp_buffer: .space 2633
+  input_buffer: .space 4096
+  output_buffer: .space 4096
+  temp_buffer: .space 4096
   enum_chars: .space 256
 
 .text
 .globl main
 main:
   la $a0, plaintext_path
-  li $a2, 128                                   # caratteri da leggere
+  li $a2, 128
   jal read_file
   jal read_key
 
@@ -32,7 +37,7 @@ main:
 
 decipher:
   la $a0, encrypted_path
-  li $a2, 2048
+  li $a2, 4096
   jal read_file
   jal read_key
 
@@ -49,7 +54,7 @@ exit:
 
 
 ###############################################################################################################################
-## 1) Lettura dei primi $a2 caratteri contenuti nel file $a0;
+## 1) Lettura dei primi $a2 caratteri di un file contenuto in $a0;
 ##    Indirizzo del buffer salvato in $s0, lunghezza del messaggio in $s1.
 ###############################################################################################################################
 read_file:
@@ -76,11 +81,11 @@ read_file:
   jr $ra
 
 ###############################################################################################################################
-## 2) Lettura della chiave di cifratura, o inversione di quest'ultima se già letta;
+## 2) Lettura della chiave di cifratura, o inversione di quest'ultima se gia' letta;
 ##    Indirizzo del buffer salvato in $s2, lunghezza della chiave in $s3.
 ###############################################################################################################################
 read_key:
-  bne $s2, $zero, reverse_key                   # se la chiave è già stata caricata, allora siamo in fase di decifratura
+  bne $s2, $zero, reverse_key                   # se la chiave e' gia' stata caricata, allora siamo in fase di decifratura
     # Apro il file.
   li $v0, 13
   la $a0, key_path                              # percorso del file
@@ -135,7 +140,7 @@ reverse_key:
 cipher_loop:
   lb $t0, 0($a1)                                # $t0 = prossimo carattere della chiave
   beq $t0, 0x00, cipher_exit                    # termina il ciclo una volta raggiunto il carattere nullo
-  blt $t0, 0x41, error_key
+  blt $t0, 0x41, error_key                      # la chiave deve essere composta soltanto dai caratteri 'A', 'B', 'C', 'D', 'E'
   bgt $t0, 0x45, error_key
 
   la $s7, output_buffer
@@ -178,8 +183,8 @@ write_file:
 ###############################################################################################################################
 decipher_loop:
   lb $t0, 0($a1)
-  beq $t0, 0x00, decipher_exit                  # è assunto che la chiave sia semanticamente valida poiché
-                                                # il controllo è eseguito durante la fase di cifratura
+  beq $t0, 0x00, decipher_exit                  # e' assunto che la chiave sia semanticamente valida poiche'
+                                                # il controllo e' eseguito durante la fase di cifratura
   la $s7, output_buffer
   beq $t0, 0x41, decipher_a
   beq $t0, 0x42, decipher_b
@@ -344,6 +349,7 @@ cipher_e:
     copy_loop:
       add $t2, $t1, $t0
       lb $t3, 0($t2)
+      sb $zero, 0($t2)                          #
       beq $t3, $zero, copy_loop_exit
       add $t5, $t4, $t0
       sb $t3, 0($t5)
@@ -352,7 +358,7 @@ cipher_e:
     copy_loop_exit:
 
     la $v0, output_buffer
-    move $s1, $t0                               # l'algoritmo non preserva la lunghezza della stringa, perciò è da aggiornare
+    move $s1, $t0                               # l'algoritmo non preserva la lunghezza della stringa, percio' e' da aggiornare
     j cipher_next
 
 
@@ -383,13 +389,13 @@ decipher_d:
 decipher_e:
   move $t0, $a0
   li $t6, 0                                     # $t6 = indice massimo
-  li $t7, 0                                     # $t7 = contatore valore numerico indice
+  li $t7, 0                                     # $t7 = totale
   li $t8, 0                                     # $t8 = contatore esponente
-  li $t9, 0                                     # $t9 = contatore inserzioni stack
+  li $t9, 0                                     # $t9 = contatore operazioni stack
 
-  de_loop:
+  decipher_e_loop:
     lb $t1, 0($t0)                              # $t1 = carattere da inserire nella stringa finale
-    beq $t1, 0x00, de_loop_exit                 # termina il ciclo una volta raggiunto il carattere nullo
+    beq $t1, 0x00, decipher_e_exit              # termina il ciclo una volta raggiunto il carattere nullo
     addi $t0, $t0, 1
 
     de_push_loop:
@@ -416,8 +422,10 @@ decipher_e:
       move $a2, $t8
       addi $t8, $t8, 1
 
+      # il codice seguente restituisce il risultato di 10^($a2) nel registro $v0
       li $a3, 10
       li $v0, 10
+
       pow_loop:
         addi $a2, $a2, -1
         beq $a2, $zero, pow_exit
@@ -429,30 +437,29 @@ decipher_e:
         li $v0, 1
       pow_exit:
         li $a3, 0
-      # $v0 = 10 ^ $a2
 
-      addi $t3, $t3, -48
+      addi $t3, $t3, -48                        # ottengo il valore numerico della cifra
       mult $t3, $v0
-      mflo $t3                                  # $t3 = $t3 * 10 ^ $t8; $t8 è l'indice posizionale di $t3
-      add $t7, $t7, $t3                         # $t7 = $t7 + $t3
+      mflo $t3                                  # cifra = cifra * 10 ^ $t8; $t8 e' l'indice posizionale della cifra
+      add $t7, $t7, $t3                         # totale = totale + cifra
     j de_pop_loop
 
     de_pop_loop_exit:
       add $t3, $s7, $t7                         # $t3 = &output_buffer + indice
       sb $t1, 0($t3)
 
-      slt $t4, $t7, $t6                         # controllo se l'indice è minore del massimo
-      bne $t4, $zero, de_loop_next
+      slt $t4, $t7, $t6                         # controllo se l'indice e' minore del massimo
+      bne $t4, $zero, decipher_e_next
       move $t6, $t7
-    de_loop_next:
+    decipher_e_next:
       li $t7, 0
       li $t8, 0
       li $t9, 0                                 # ripristino i registri temporanei $t7, $t8, $t9
 
-      beq $t2, 0x2D, de_push_loop               # se il prossimo carattere è '-', passo al prossimo indice
-      addi $t0, $t0, 1                          # altrimenti il prossimo carattere è ' ', pertanto ritorno
-      beq $t2, 0x20, de_loop                    # al ciclo iniziale
-  de_loop_exit:
+      beq $t2, 0x2D, de_push_loop               # se il prossimo carattere e' '-', passo al prossimo indice
+      addi $t0, $t0, 1                          # altrimenti il prossimo carattere e' ' ', pertanto ritorno
+      beq $t2, 0x20, decipher_e_loop            # al ciclo iniziale
+  decipher_e_exit:
     la $v0, output_buffer
     addi $t6, $t6, 1
     move $s1, $t6
